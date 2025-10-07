@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+pytest
+python-dotenv
+openai>=1.0.0 ; python_version>="3.9"
+gradio
+requests
+pytest-cov
+pylint
+ruff
+black
+isort

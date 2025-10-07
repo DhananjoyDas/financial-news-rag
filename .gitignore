@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[oc]
+.venv/
+.env
+.env.*
+*.egg-info/
+.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+
+# Node/Frontend (if any)
+node_modules/
+
+# Build & local artifacts
+dist/
+build/
+*.log
+.pytest_cache/
+wheels/
+*.egg-info
+run-openai.sh
+run-mock.sh
+run.sh
+
+# pytest coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# Gradio
+.gradio/*
+
+# Virtual environments
+.venv
+
+# Data cleaning files
+data_clean/stock_news.json
+data_clean/stock_news.filtered.for_index.json
+data_clean/stock_news.cleaned.json
+data_clean/*.csv

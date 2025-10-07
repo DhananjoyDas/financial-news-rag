@@ -1,0 +1,11 @@
+__pycache__
+.pytest_cache
+htmlcov
+*.pyc
+.venv
+.terraform
+*.log
+.git
+dist
+build
+.DS_Store
