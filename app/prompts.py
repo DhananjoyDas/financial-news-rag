@@ -76,6 +76,8 @@ Always keep user safety and the system-first rule highest priority. """
 # Do NOT fabricate or use external knowledge.
 # """
 
+CONTEXT_START = "<<<CONTEXT_START>>>"
+CONTEXT_END   = "<<<CONTEXT_END>>>"
 
 def build_answer_prompt(question: str, context: str) -> str:
     """Build the full prompt for the answer generation LLM call."""
@@ -86,5 +88,7 @@ USER QUESTION:
 {question}
 
 CONTEXT (snippets from news JSON):
+{CONTEXT_START}
 {context}
+{CONTEXT_END}
 """

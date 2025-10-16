@@ -27,9 +27,10 @@ def test_ask_news_success(monkeypatch):
         )
 
     monkeypatch.setattr("ui.app.requests.post", fake_post)
-    answer, citations_md = ask_news("What’s new with Apple this quarter?")
+    answer, citations_md, fact_md = ask_news("What’s new with Apple this quarter?")
     assert "Test answer" in answer
     assert "Sources" in citations_md or "T1" in citations_md
+    assert "Fact-check verdict" in fact_md
 
 
 def test_ask_news_http_error(monkeypatch):
@@ -39,7 +40,7 @@ def test_ask_news_http_error(monkeypatch):
         return DummyResp(500, None, "internal error")
 
     monkeypatch.setattr("ui.app.requests.post", fake_post)
-    answer, _ = ask_news("Some question")
+    answer, _, fact_md = ask_news("Some question")
     assert answer.startswith("Error: 500")
 
 

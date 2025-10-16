@@ -14,6 +14,9 @@ try:
 except Exception:
     OpenAI = None  # keeps local tests clean
 
+# import the markers so we can parse precisely
+from .prompts import CONTEXT_START, CONTEXT_END, ANSWER_SYSTEM_PROMPT
+
 class LLMClient(ABC):
     """Abstract LLM interface so the app and tests don't care about the provider."""
     @abstractmethod
@@ -28,29 +31,44 @@ class MockLLM(LLMClient):
     - If context looks empty, returns the fallback.
     """
     def complete(self, prompt: str, *, system: Optional[str] = None) -> str:
+        raw = prompt or ""
         # Extremely simple parse: find CONTEXT section and harvest up to 3 titles/links.
-        ctx = prompt.split("CONTEXT", 1)[-1]
+        # 1) Extract context block
+        if CONTEXT_START in raw and CONTEXT_END in raw:
+            ctx = raw.split(CONTEXT_START, 1)[-1].split(CONTEXT_END, 1)[0].strip()
+        else:
+            # No recognizable context → refuse
+            return "I don’t know based on the provided news dataset."
+
+
+        # 2) Find bracketed sources & make a simple first line
         lines = [l.strip() for l in ctx.splitlines() if l.strip()]
-        # Detect empty/low-signal context
-        if len(lines) < 2:
-            return "Sorry, I don’t know based on the provided (cleaned) news dataset."
-        # Find the first non-header content line to quote
-        content_line = next((l for l in lines if l and not l.upper().startswith("CONTEXT")), "")
-        quote = content_line[:80].strip().strip(":;,.")
-        # Gather sources from lines starting with [Title] pattern (our retriever will provide that)
+
+        # Collect sources of the form: [Title] ... (link: URL)
         sources = []
         for l in lines:
             if l.startswith("[") and "]" in l:
-                # expected format: [Title] some text ... (link: URL)
                 title = l.split("]", 1)[0].lstrip("[").strip()
                 link = ""
                 if "(link:" in l:
                     link = l.split("(link:", 1)[-1].split(")", 1)[0].strip()
                 sources.append((title, link))
-        sources = sources[:3] or [("Dataset", "#")]
-        src_str = "\n".join(f"- {t} — {u or '#'}" for t, u in sources)
+        if not sources:
+            # No properly formatted sources → refuse (don’t echo instructions)
+            return "I don’t know based on the provided news dataset."
 
-        return f"""{quote}
+        # crude but deterministic “summary”: use the first non-bracket line as a lead, else use the title
+        lead = ""
+        for l in lines:
+            if l.startswith("["):
+                continue
+            lead = l
+            break
+        if not lead:
+            lead = f"{sources[0][0]}."
+
+        src_str = "\n".join(f"- {t} — {u or '#'}" for t,u in sources[:3])
+        return f"""{lead}
 Sources:
 {src_str}"""
 

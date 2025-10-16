@@ -19,11 +19,19 @@ class Citation(BaseModel):
     ticker: Optional[str] = None
 
 
+class FactCheckResult(BaseModel):
+    verdict: str  # "PASS" | "WARN" | "FAIL"
+    unsupported_claims: List[str] = []
+    confidence: float = 0.0
+    notes: Optional[str] = None
+
+
 class ChatResponse(BaseModel):
     """Response model for the chat endpoint."""
 
     answer: str
     citations: List[Citation]
+    fact_check: Optional[FactCheckResult] = None
 
 
 class Healthz(BaseModel):

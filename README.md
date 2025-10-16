@@ -13,6 +13,8 @@ This README is organised to help contributors and users: Architecture & Data flo
   - High-level architecture
   - Request Lifecycle
   - Module-level Data Flow
+  - Prompt Guardrail used
+- AI Agents & Auditing
 - Quickstart (env & install)
   - Local setup without Containers
     - Running the app (mock / OpenAI)
@@ -71,6 +73,13 @@ flowchart TD
     PROM -->|prompt+system| LLM[LLM Provider]
     LLM -->|answer| API
     API -->|response| U
+
+    %% New agents
+    LLM -->|answer| FCA[Fact-checking Agent]
+    FCA -->|fact annotations| API
+
+    API -->|log transaction| AUD[Auditing / Logging Agent]
+    AUD -->|writes to| LOGS[(NEWS_AUDIT_LOG file)]
   end
 
   subgraph Providers[Optional]
@@ -105,8 +114,14 @@ sequenceDiagram
     RET-->>API: context_str
     API->>PROM: build_answer_prompt(question, context_str)
     PROM-->>API: prompt_str
-    API->>LLM: complete(prompt_str, system=ANSWER_SYSTEM_PROMPT)
-    LLM-->>API: answer_text
+  API->>LLM: complete(prompt_str, system=ANSWER_SYSTEM_PROMPT)
+  LLM-->>API: answer_text
+  %% Fact-checking agent runs after the LLM to verify key claims
+  LLM->>FCA: send_answer_for_check(answer_text, context, citations)
+  FCA-->>API: fact_annotations
+  %% Auditing / Logging agent records the transaction
+  API->>AUD: write_audit_record(question, prompt_str, answer_text, citations, notes=fact_annotations)
+  AUD-->>API: audit_ok
     API->>U: 200 {answer, citations}
 ```
 
@@ -120,9 +135,15 @@ flowchart LR
     D --> E[index dict]
     C -->|hits| F[format_context string snippets]
     F --> G[prompts.build_answer_prompt]
-    G --> H[LLM.complete - prompt, system]
-    H --> I[ChatResponse - answer, citations]
-    I --> B
+  G --> H[LLM.complete - prompt, system]
+  H --> I[ChatResponse - answer, citations]
+  %% Fact-checking agent verifies key claims against the context
+  I --> FCA[Fact-checking Agent]
+  FCA --> B[app.main.chat]
+  %% Auditing / Logging agent records the transaction
+  B --> AUD[Auditing / Logging Agent]
+  AUD --> LOGS[(NEWS_AUDIT_LOG file)]
+  I --> B
 ```
 
 ### Prompt Guardrail used
@@ -139,6 +160,45 @@ Requirements:
 - If the CONTEXT lacks the answer, reply exactly: "I don’t know based on the provided (cleaned) news dataset."
 - Do NOT fabricate, guess, or use external knowledge beyond the provided CONTEXT.
 ```
+
+## AI Agents & Auditing
+
+This project now includes optional AI agents that extend the RAG pipeline and a lightweight auditing agent that records user interactions and model predictions to a file set by the `NEWS_AUDIT_LOG` environment variable.
+
+- Fact-checking agent: an auxiliary agent that runs after the primary LLM answer to verify key factual claims (dates, numbers, named entities) against the provided `CONTEXT` and the retrieved documents. If a mismatch is detected the agent annotates the response with a short "Fact-check" note and flags the item for reviewer attention. This agent uses the same `CONTEXT` and `citations` the main pipeline provides — it does not access external sources by default.
+
+- Auditing / Logging agent: a second agent that writes each user transaction to the configured audit log. The log path is provided by the `NEWS_AUDIT_LOG` environment variable. Each record is a single JSON object (newline-delimited JSON) with a minimal, non-sensitive snapshot of the request and the pipeline output. Example fields:
+
+  - `ts`: ISO8601 timestamp (UTC) for the transaction
+  - `question`: the raw user question (redaction rules described below)
+  - `prompt`: the prompt sent to the LLM (sanitized)
+  - `model`: model identifier used (e.g., `mock` or `gpt-4o-mini`)
+  - `answer`: model text output
+  - `citations`: list of citation dicts returned by the retrieval pipeline (title/link/ticker)
+  - `notes`: optional fact-checker annotations (if any)
+
+Example minimal log line (one JSON object per line):
+
+```json
+{"ts":"2025-10-11T15:04:05Z","question":"Any recent IBM partnerships mentioned?","model":"gpt-4o-mini","answer":"...","citations":[{"title":"Penn State Taps IBM...","link":"https://...","ticker":"IBM"}],"notes":"fact-check: date mismatch"}
+```
+
+Enabling audit logs (local/run example):
+
+```bash
+export NEWS_AUDIT_LOG=./logs/interactions.log
+mkdir -p $(dirname "$NEWS_AUDIT_LOG")
+export LLM_PROVIDER=mock
+export NEWS_JSON_PATH=stock_news.cleaned.json
+PYTHONPATH=. uvicorn app.main:app --reload
+```
+
+Security and privacy notes
+- Do NOT store secrets (API keys, PII) in the audit log. The auditing agent automatically redacts patterns that look like API keys / private keys (configurable regex). Review and tune `NEWS_AUDIT_LOG` permissions (owner-only) and rotation policies.
+- The audit log is newline-delimited JSON for easy ingestion by log processors; choose retention/rotation appropriate to your environment.
+- To disable logging entirely, unset `NEWS_AUDIT_LOG` or set it to an empty value.
+
+If you want the agent to upload logs to a remote store (S3, ELK, etc.) this can be added later; the current implementation writes to a local file for simplicity and offline debugging.
 
 
 ## Quickstart (env & install)
@@ -174,6 +234,7 @@ PYTHONPATH=. pytest -q
 
 > Create a sample run.sh file
 ```bash
+export NEWS_AUDIT_LOG=./logs/interactions.log
 export LLM_PROVIDER=mock
 export NEWS_JSON_PATH=stock_news.cleaned.json
 uvicorn app.main:app --reload
@@ -191,6 +252,7 @@ PYTHONPATH=. uvicorn app.main:app --reload
 > Create a sample run-openai.sh file
 
 ```bash
+export NEWS_AUDIT_LOG=./logs/interactions.log
 export LLM_PROVIDER=openai
 export NEWS_JSON_PATH=stock_news.cleaned.json
 export OPENAI_API_KEY="sk-..."
